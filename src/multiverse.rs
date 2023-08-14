@@ -11,16 +11,14 @@ use misc::Coords;
 /// It is a mapping from a set of coords to the number of blues amongst these
 /// cells.
 /// Examples:
-/// {a}: 0     // The [a] cell is black
-/// {b}: 1     // The [b] cell is blue
-/// {c, d}: 1  // One of [c, d] is blue and the other is black
-/// {e, f}: 2  // Both [e, f] are blue
-/// n: k       // [k] of the [n] coordinates are blue.
+/// {a}: 0     // The `a` cell is black
+/// {b}: 1     // The `b` cell is blue
+/// {c, d}: 1  // One of `c, d` is blue and the other is black
+/// {e, f}: 2  // Both `e, f` are blue
+/// n: k       // `k` of the `n` coordinates are blue.
 ///               (i.e. n.len() choose k combinations)
 #[derive(Debug, Clone)]
 pub struct Layout {
-    // to learn: I'm glad the BTreeSet can straight away serve a key for map,
-    // why exactly? Need to read stdlib
     pub binomial_coefs: BTreeMap<BTreeSet<Coords>, u16>,
 }
 
@@ -29,7 +27,6 @@ impl Layout {
         let mut seen = BTreeSet::new();
         for (coords_set, blue_count) in &binomial_coefs {
             assert_ne!(coords_set.len(), 0, "empty coords_set in input layout");
-            // to learn: Why do I need to dereference before [.into()] Is there an arrow syntax? I felles strange that rusts chooses to use refs for small primitives like int. Why doesn't it copy by default? Is it optimized away by the compiler anyway?
             assert!((*blue_count) as usize <= coords_set.len());
             for coords in coords_set {
                 assert!(!seen.contains(coords), "duplicate coords in input layout");
@@ -75,7 +72,6 @@ impl Layout {
     }
 
     fn are_aligned(left: &Vec<Layout>, right: &Vec<Layout>) -> bool {
-        // to learn: Why do I have to slice?
         // First: Check that all left Layouts have the same
         let left_layout_opt = match &left[..] {
             [] => None,
@@ -119,11 +115,10 @@ impl Layout {
                 .find(|coords_set| coords_set.is_superset(&new_key))
                 .expect("Unexpected parameters to split");
             if new_key == old_key {
-                // This means that a previous call to [split] already chunked as wished
+                // This means that a previous call to `split` already chunked as wished
                 res.push(lay.clone());
                 continue;
             }
-            // to learn: Why can't I [cloned] after [collect]?
             let new_key2: BTreeSet<_> = old_key.difference(&new_key).cloned().collect();
             assert!(!new_key2.is_empty());
             let mut bc = lay.binomial_coefs.clone();
@@ -144,8 +139,8 @@ impl Layout {
         res
     }
 
-    /// Fork a layout to make it compatible with the keys of another layout. That other layout will
-    /// need to undergo the symmetrical operation because compatibility of keys if reached.
+    /// Fork a layout to make it compatible with the keys of another Layout. That other Layout will
+    /// need to undergo the symmetrical operation.
     fn align_with_keys(&self, right_keys: &BTreeSet<BTreeSet<Coords>>) -> Vec<Layout> {
         let mut res = vec![(*self).clone()];
         for left_key in self.binomial_coefs.keys() {
@@ -164,12 +159,12 @@ impl Layout {
     }
 
     /// Reshape two layouts to give them the same keys on their intersection.
-    /// Such a reshaping implies forking each layout into multiple layouts, hence the Vec return type.
-    /// In [(va, vb) = align(a, b)]:
-    /// - [a] and [va] encode the exact same set of solutions (the same goes for [b] with [vb]).
-    /// - If [a] and [b] are already aligned, [va = vec![a]] and [vb = vec![vb]].
-    /// - All the Layouts in [va] have the same keys (the same goes for [vb]).
-    /// - The number of solutions is identical in a and va (the same foes for [b] and [vb]).
+    /// Such a reshaping implies forking each layout into multiple layouts, hence the `Vec` return type.
+    /// In `(va, vb) = align(a, b)`:
+    /// - `a` and `va` encode the exact same set of solutions (the same goes for `b` with `vb`).
+    /// - If `a` and `b` are already aligned, `va = vec![a]` and `vb = vec![vb]`.
+    /// - All the Layouts in `va` have the same keys (the same goes for `vb`).
+    /// - The number of solutions is identical in `a` and `va` (the same foes for `b` and `vb`).
     fn align(&self, other: &Layout) -> (Vec<Layout>, Vec<Layout>) {
         let left_keys: BTreeSet<_> = self.binomial_coefs.keys().cloned().collect();
         let right_keys: BTreeSet<_> = other.binomial_coefs.keys().cloned().collect();
@@ -197,8 +192,7 @@ impl Layout {
         (left, right)
     }
 
-    // TODO: Rename to union? or merge
-    fn intersection(&self, other: &Layout) -> Vec<Layout> {
+    fn merge(&self, other: &Layout) -> Vec<Layout> {
         let mut res = vec![];
         let (left_lays, right_lays) = self.align(other);
         let left_keys: BTreeSet<_> = left_lays
@@ -240,11 +234,11 @@ pub enum State {
 }
 
 /// A Multiverse gathers all the possible permutations that a given set of coords (i.e. scope) may take.
-/// If [mv.solution_count_upper_bound() == 1], there is no uncertainty within [mv].
-/// If [mv.invariants().is_empty()], there is no certainty within [mv].
+/// If `mv.solution_count_upper_bound() == 1`, there is no uncertainty within `mv`.
+/// If `mv.invariants().is_empty()`, there is no certainty within `mv`.
 /// Two differents layout in a multiverse are two ways to describe permutations of the same set of coords (i.e. the scope).
 /// Two layouts in a multiverse may describe overlapping sets of results, hence the fact that [solution_count_upper_bound] doesn't give the exact number of solutions.
-/// A multiverse may have no solutions (i.e. empty layouts)
+/// A multiverse may have no solutions (i.e. `State::Stuck`)
 #[derive(Debug, Clone)]
 pub struct Multiverse {
     pub scope: BTreeSet<Coords>,
@@ -294,22 +288,22 @@ impl Multiverse {
     pub fn invariants(&self) -> BTreeMap<Coords, Color> {
         let mut blue_for_sure = self.scope.clone();
         let mut black_for_sure = self.scope.clone();
-        // Start with full [blue_for_sure] and [black_for_sure] and gradually purge them.
-        // If both get empty. All cells in the scope are uncertain.
+        // Start with full `blue_for_sure` and `black_for_sure` and gradually purge them.
+        // If both become empty. All cells in the scope are uncertain.
         for lay in &self.layouts {
             for (coords_set, blue_count) in &lay.binomial_coefs {
                 if *blue_count == 0 {
-                    // All in [coords_set] are black
+                    // All in `coords_set` are black
                     for coords in coords_set {
                         blue_for_sure.remove(coords);
                     }
                 } else if *blue_count as usize == coords_set.len() {
-                    // All in [coords_set] are blue
+                    // All in `coords_set` are blue
                     for coords in coords_set {
                         black_for_sure.remove(coords);
                     }
                 } else {
-                    // All in [coords_set] are unknown
+                    // All in `coords_set` are unknown
                     for coords in coords_set {
                         blue_for_sure.remove(coords);
                         black_for_sure.remove(coords);
@@ -335,8 +329,7 @@ impl Multiverse {
         result
     }
 
-    // TODO: Rename to union? or merge?
-    pub fn intersection(&self, other: &Multiverse) -> Multiverse {
+    pub fn merge(&self, other: &Multiverse) -> Multiverse {
         let scope = self.scope.union(&other.scope).cloned().collect();
         match (self.state(), other.state()) {
             (State::Empty, _) => return other.clone(),
@@ -347,8 +340,7 @@ impl Multiverse {
         let mut layouts = vec![];
         for left_lay in &self.layouts {
             for right_lay in &other.layouts {
-                // to learn: What's that [&mut]?
-                layouts.append(&mut left_lay.intersection(right_lay));
+                layouts.append(&mut left_lay.merge(right_lay));
             }
         }
         Multiverse::new(scope, layouts)
@@ -368,7 +360,7 @@ impl Multiverse {
                 match (color, lay.binomial_coefs[&key.clone()]) {
                     (_, 2..=u16::MAX) => panic!("Unreachable"),
                     (Color::Blue, 1) | (Color::Black, 0) => {
-                        // Keep that layout and remove that coord
+                        // Keep that layout and remove that coords
                         let mut bc = lay.binomial_coefs.clone();
                         bc.remove(&key);
                         Some(Layout::new(bc))

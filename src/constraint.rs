@@ -1,4 +1,5 @@
-/// Conversion from game constraints from [Defn] to [Multiverse] ready for solving
+/// Conversion of game constraints from [Defn] to [Multiverse] ready for solving:
+/// [line], [zone6] and [zone18]
 use itertools::Itertools;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
@@ -103,6 +104,48 @@ fn distribute_separated(scope_vec: &Vec<Coords>, blue_count: usize) -> Multivers
     Multiverse::new(scope_set, layouts)
 }
 
+fn has_compatible_contiguity(
+    blues: &BTreeSet<usize>,
+    blacks: &BTreeSet<usize>,
+    together: bool,
+) -> bool {
+    let last_blue_idx = blues.last().expect("Can't be empty");
+    let first_blue_idx = blues.first().expect("Can't be empty");
+    let all_blues_togethers = last_blue_idx - first_blue_idx == blues.len() - 1;
+    let last_black_idx = blacks.last().expect("Can't be empty");
+    let first_black_idx = blacks.first().expect("Can't be empty");
+    let all_blacks_togethers = last_black_idx - first_black_idx == blacks.len() - 1;
+    match (all_blues_togethers, all_blacks_togethers) {
+        (true, true) => {
+            // Colors are groupped together and don't loop over index 0
+            assert!(*first_blue_idx == 0 || *first_black_idx == 0);
+            assert!(*last_blue_idx == 5 || *last_black_idx == 5);
+            if !together {
+                return false;
+            };
+        }
+        (true, false) => {
+            // Colors are grouped together and blacks loop over index 0
+            if !together {
+                return false;
+            };
+        }
+        (false, true) => {
+            // Colors are grouped together and blues loop over index 0
+            if !together {
+                return false;
+            };
+        }
+        (false, false) => {
+            // Colors are not grouped together
+            if together {
+                return false;
+            };
+        }
+    };
+    return true;
+}
+
 /// This multiverse constructor is for Zone6 together and Zone6 separated
 /// The output contains one layout per solution
 fn distribute_in_ring(
@@ -110,7 +153,6 @@ fn distribute_in_ring(
     blue_count: usize,
     together: bool,
 ) -> Multiverse {
-    // println!("distribute_in_ring {:?} {} {}", scope_arr, blue_count, together);
     if together {
         let scope_vec: Vec<_> = scope_arr
             .iter()
@@ -126,58 +168,23 @@ fn distribute_in_ring(
         .iter()
         .filter_map(|(c, is_gap)| if *is_gap { None } else { Some(*c) })
         .collect();
-    // println!("  scope_set {:?}", scope_set);
     let mut layouts = vec![];
     let idxs: BTreeSet<_> = (0..6).collect();
     for blues in idxs.iter().combinations(blue_count as usize) {
-        // println!("  blues {:?}", blues);
-        // to learn: Why did I need to clone twice?
         let blues: BTreeSet<_> = blues.iter().cloned().cloned().collect();
-        let mut skip = false;
+        let mut a_gap_is_blue = false;
         for i in &blues {
             if scope_arr[*i].1 {
-                skip = true;
+                a_gap_is_blue = true;
                 break;
             }
         }
-        if skip {
+        if a_gap_is_blue {
             continue;
         }
         let blacks: BTreeSet<_> = idxs.difference(&blues).cloned().collect();
-        let last_blue_idx = blues.last().expect("Can't be empty");
-        let first_blue_idx = blues.first().expect("Can't be empty");
-        let all_blues_togethers = last_blue_idx - first_blue_idx == blues.len() - 1;
-        let last_black_idx = blacks.last().expect("Can't be empty");
-        let first_black_idx = blacks.first().expect("Can't be empty");
-        let all_blacks_togethers = last_black_idx - first_black_idx == blacks.len() - 1;
-        match (all_blues_togethers, all_blacks_togethers) {
-            (true, true) => {
-                // Colors are groupped together and don't loop over index 0
-                // to learn: how come these are not plain?
-                assert!(*first_blue_idx == 0 || *first_black_idx == 0);
-                assert!(*last_blue_idx == 5 || *last_black_idx == 5);
-                if !together {
-                    continue;
-                };
-            }
-            (true, false) => {
-                // Colors are grouped together and blacks loop over index 0
-                if !together {
-                    continue;
-                };
-            }
-            (false, true) => {
-                // Colors are grouped together and blues loop over index 0
-                if !together {
-                    continue;
-                };
-            }
-            (false, false) => {
-                // Colors are not grouped together
-                if together {
-                    continue;
-                };
-            }
+        if !has_compatible_contiguity(&blues, &blacks, together) {
+            continue;
         }
         let blues: BTreeSet<_> = blues.iter().map(|i| scope_arr[*i].0).collect();
         let blacks: BTreeSet<_> = blacks
@@ -185,7 +192,6 @@ fn distribute_in_ring(
             .filter(|i| !scope_arr[**i].1)
             .map(|i| scope_arr[*i].0)
             .collect();
-        // println!("    blues:{:?}, blacks:{:?}", blues, blacks);
         assert_eq!(scope_set.len(), blues.len() + blacks.len());
         let mut bc = vec![];
         bc.push((blues, blue_count as u16));
@@ -196,11 +202,9 @@ fn distribute_in_ring(
     }
     assert!(layouts.len() > 0);
     let mv = Multiverse::new(scope_set, layouts);
-    // println!("done",);
     mv
 }
 
-// to learn: Where should I put the tests?
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,7 +216,6 @@ mod tests {
     }
 
     fn mock_zone6_anywhere(center: &Coords, blue_count: usize) -> Multiverse {
-        // to-learn: Is there a way to avoid the [cloned]?
         distribute_anywhere(&center.neighbors6().iter().cloned().collect(), blue_count)
     }
 
@@ -258,16 +261,16 @@ mod tests {
         )
     }
 
-    /// As horizontal neighbors they are not direct neighbors. They share 2 direct neighbors.
     fn test_two_zone6_horizontal_neighbors(
         blue_count_left: usize,
         blue_count_right: usize,
         invariant_count: usize,
         solution_count: u64,
     ) {
+        // Horizontal neighbors are not direct neighbors. They share 2 direct neighbors.
         let mv0 = mock_zone6_anywhere(&Coords::new(0, 0, 0), blue_count_left);
         let mv1 = mock_zone6_anywhere(&Coords::new(2, -1, -1), blue_count_right);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         let invariants = mv.invariants();
         assert_eq!(
             nk(6, blue_count_left as u64),
@@ -312,18 +315,18 @@ mod tests {
 
         // A black circle intersecting on the last 2 cells of the line
         let mv1 = mock_zone6_anywhere(&Coords::new(-1, 4, -3), 0);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(1, mv.solution_count_upper_bound().unwrap());
         assert_eq!(9, mv.invariants().len());
 
         // A black circle intersecting on the middle cell and the one below
         let mv1 = mock_zone6_anywhere(&Coords::new(-1, 3, -2), 0);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(0, mv.solution_count_upper_bound().unwrap());
 
         // A blue circle intersecting on the middle cell and the one below
         let mv1 = mock_zone6_anywhere(&Coords::new(-1, 3, -2), 6);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(2, mv.solution_count_upper_bound().unwrap());
         assert_eq!(7, mv.invariants().len()); // The 6 of the circle plus the topmost
 
@@ -367,13 +370,13 @@ mod tests {
 
         // A black circle intersecting on the middle cell and the one below
         let mv1 = mock_zone6_anywhere(&Coords::new(-1, 3, -2), 0);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(2, mv.solution_count_upper_bound().unwrap()); // Reality is 1 but the algorithm produced overlapping layouts
         assert_eq!(9, mv.invariants().len());
 
         // A blue circle intersecting on the middle cell and the one below
         let mv1 = mock_zone6_anywhere(&Coords::new(-1, 3, -2), 6);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(1, mv.solution_count_upper_bound().unwrap());
         assert_eq!(9, mv.invariants().len());
     }
@@ -395,13 +398,13 @@ mod tests {
         let mv0 = mock_line_together(&Coords::new(0, 0, 0), 5, 3);
         // A circle intersecting on the middle cell and the one below
         let mv1 = mock_ring_together(&Coords::new(-1, 3, -2), 4);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(7, mv.solution_count_upper_bound().unwrap());
         assert_eq!(1, mv.invariants().len()); // The leftmost of the ring
 
         let mv0 = mock_zone6_anywhere(&Coords::new(0, 0, 0), 4);
         let mv1 = mock_ring_together(&Coords::new(0, 0, 0), 4);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(6, mv.solution_count_upper_bound().unwrap());
         assert_eq!(0, mv.invariants().len());
 
@@ -409,7 +412,7 @@ mod tests {
         let mv0 = mock_zone6_anywhere(&Coords::new(0, 0, 0), 6);
         let mv1 = mock_ring_together(&Coords::new(2, -1, -1), 3);
         let mv2 = mock_ring_together(&Coords::new(1, -2, 1), 3);
-        let mv = mv0.intersection(&mv1).intersection(&mv2);
+        let mv = mv0.merge(&mv1).merge(&mv2);
         assert_eq!(2, mv.solution_count_upper_bound().unwrap());
         assert_eq!(10, mv.invariants().len());
     }
@@ -430,13 +433,13 @@ mod tests {
 
         let mv0 = mock_ring_separated(&Coords::new(0, 0, 0), 3);
         let mv1 = mock_zone6_anywhere(&Coords::new(2, -1, -1), 6);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(2, mv.solution_count_upper_bound().unwrap());
         assert_eq!(8, mv.invariants().len());
 
         let mv0 = mock_ring_separated(&Coords::new(0, 0, 0), 2);
         let mv1 = mock_zone6_anywhere(&Coords::new(2, -1, -1), 5);
-        let mv = mv0.intersection(&mv1);
+        let mv = mv0.merge(&mv1);
         assert_eq!(6, mv.solution_count_upper_bound().unwrap());
         assert_eq!(4, mv.invariants().len());
     }
@@ -452,7 +455,7 @@ mod tests {
         assert_eq!(empty.state(), State::Empty);
         assert_eq!(0, empty.solution_count_upper_bound().unwrap());
         assert!(empty.invariants().len() == 0);
-        let empty = empty.intersection(&empty);
+        let empty = empty.merge(&empty);
         assert_eq!(empty.state(), State::Empty);
         assert_eq!(0, empty.solution_count_upper_bound().unwrap());
         assert!(empty.invariants().len() == 0);
@@ -460,7 +463,7 @@ mod tests {
         // Intersection with empty
         let c = Coords::new(0, 0, 0);
         let running = mock_zone6_anywhere(&c, 3);
-        let running = empty.intersection(&running);
+        let running = empty.merge(&running);
         assert_eq!(running.state(), State::Running);
         assert_eq!(nk(6, 3), running.solution_count_upper_bound().unwrap());
         assert!(running.invariants().len() == 0);
@@ -474,7 +477,7 @@ mod tests {
         // Disjoint scopes
         let c2 = Coords::new(10, 0, -10);
         let running2 = mock_zone6_anywhere(&c2, 3);
-        let mv = running2.intersection(&running);
+        let mv = running2.merge(&running);
         assert_eq!(mv.state(), State::Running);
         assert_eq!(nk(6, 3).pow(2), mv.solution_count_upper_bound().unwrap());
         assert!(mv.invariants().len() == 0);

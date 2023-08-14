@@ -1,3 +1,4 @@
+/// Produce the 2 csv files necessary for https://gist.github.com/Ngoguey42/a0f661c5cb36180a3a6aca4bb4d385b2/99b37bdf646d8dd76df6a1c26ea0d6acf4856219
 use reddit_post;
 use solver;
 use std::fs::File;

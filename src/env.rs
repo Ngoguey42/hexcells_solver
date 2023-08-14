@@ -13,6 +13,7 @@ impl fmt::Display for Timeout {
     }
 }
 
+/// Represents the runtime environment for the solver, responsible for managing timeouts.
 pub struct Env {
     start_time: Instant,
     max_duration: Duration,

@@ -1,28 +1,29 @@
 use std::collections::BTreeMap;
 use std::error::Error;
 
-use misc::err;
 use misc::Coords;
 
 type Grid33<T> = [[T; 33]; 33];
 
-// to learn: In OCaml that type would be called [t]. What are the rust
-// conventions?
+/// The definition of a hexcells puzzle.
+/// Is uses cube coordinates for hexagons: https://www.redblobgames.com/grids/hexagons
+/// It is computed by parsing a string: https://github.com/oprypin/sixcells
+/// It is passed to the solver for solving.
 pub type Defn = BTreeMap<Coords, Cell>;
 
-fn char_grid_of_string(defn: &String) -> Result<Grid33<(char, char)>, Box<dyn Error>> {
+fn char_grid_of_string(strdefn: &String) -> Result<Grid33<(char, char)>, Box<dyn Error>> {
     let mut grid = [[('_', '_'); 33]; 33];
-    let defn: Vec<_> = defn.trim().split("\n").collect();
-    if defn.len() != 38 {
+    let strdefn: Vec<_> = strdefn.trim().split("\n").collect();
+    if strdefn.len() != 38 {
         return Err(format!(
-            "Wrong number of line in defn. Got {}, expected 38",
-            defn.len()
+            "Wrong number of line in strdefn. Got {}, expected 38",
+            strdefn.len()
         )
         .into());
     }
-    let defn = &defn[5..];
-    assert_eq!(defn.len(), 33);
-    for (i, line) in defn.iter().enumerate() {
+    let strdefn = &strdefn[5..];
+    assert_eq!(strdefn.len(), 33);
+    for (i, line) in strdefn.iter().enumerate() {
         let line = line.trim();
         if line.len() != 66 {
             return Err(format!(
@@ -31,7 +32,6 @@ fn char_grid_of_string(defn: &String) -> Result<Grid33<(char, char)>, Box<dyn Er
             )
             .into());
         }
-        // to-learn: I think that [collect] copies. Is there a copy-less way?
         let line: Vec<_> = line.chars().collect();
         for (j, chunk) in line.chunks(2).enumerate() {
             let (left, right) = match chunk {
@@ -82,8 +82,7 @@ pub enum Color {
     Blue,
 }
 
-// to learn: What's the difference between clone and copy? Why do I need both?
-/// Cell is the type of a single cell in a Hexcells level definition
+/// `Cell` is the type of a single cell in a Hexcells level definition
 #[derive(Copy, Clone, Debug)]
 pub enum Cell {
     Empty,
@@ -104,7 +103,7 @@ fn lex_left(c: char) -> Result<TokenLeft, Box<dyn Error>> {
         '/' => Ok(L::Slash),
         '\\' => Ok(L::Backslash),
         '|' => Ok(L::Pipe),
-        _ => err(&format!("Unknown left token:'{}'", c)),
+        _ => Err(format!("Unknown left token:'{}'", c).into()),
     }
 }
 
@@ -115,7 +114,7 @@ fn lex_right(c: char) -> Result<TokenRight, Box<dyn Error>> {
         '+' => Ok(R::Plus),
         'c' => Ok(R::C),
         'n' => Ok(R::N),
-        _ => err(&format!("Unknown right token:'{}'", c)),
+        _ => Err(format!("Unknown right token:'{}'", c).into()),
     }
 }
 
@@ -126,12 +125,7 @@ fn parse_modifier(r: TokenRight) -> Modifier {
         R::Plus => M::Anywhere,
         R::C => M::Together,
         R::N => M::Separated,
-        R::Dot =>
-        // to learn: In other langues I would use [assert false]. Is panic
-        // alright?
-        {
-            std::panic::panic_any(0)
-        }
+        R::Dot => std::panic::panic_any(0),
     }
 }
 
@@ -142,7 +136,7 @@ fn parse_cell(l: TokenLeft, r: TokenRight) -> Result<Cell, Box<dyn Error>> {
     type C = Color;
     match (l, r) {
         (L::Dot, R::Dot) => Ok(Cell::Empty),
-        (L::Dot, _right) => err("Invalid pair A"),
+        (L::Dot, _right) => Err("Invalid pair A".into()),
         (L::SmallO, right @ (R::Plus | R::C | R::N)) => Ok(Cell::Zone6 {
             revealed: false,
             m: parse_modifier(right),
@@ -164,14 +158,14 @@ fn parse_cell(l: TokenLeft, r: TokenRight) -> Result<Cell, Box<dyn Error>> {
             color: C::Blue,
         }),
         (L::SmallX, R::Plus) => Ok(Cell::Zone18 { revealed: false }),
-        (L::SmallX, _right @ (R::C | R::N)) => err("Invalid pair B"),
+        (L::SmallX, _right @ (R::C | R::N)) => Err("Invalid pair B".into()),
         (L::BigX, R::Dot) => Ok(Cell::Zone0 {
             revealed: true,
             color: C::Blue,
         }),
         (L::BigX, R::Plus) => Ok(Cell::Zone18 { revealed: true }),
-        (L::BigX, _right @ (R::C | R::N)) => err("Invalid pair C"),
-        (_left @ (L::Slash | L::Backslash | L::Pipe), R::Dot) => err("Invalid pair D"),
+        (L::BigX, _right @ (R::C | R::N)) => Err("Invalid pair C".into()),
+        (_left @ (L::Slash | L::Backslash | L::Pipe), R::Dot) => Err("Invalid pair D".into()),
         (L::Slash, right @ (R::Plus | R::C | R::N)) => Ok(Cell::Line {
             o: O::BottomLeft,
             m: parse_modifier(right),
@@ -191,8 +185,6 @@ fn cell_grid_of_char_grid(src: Grid33<(char, char)>) -> Result<Grid33<Cell>, Box
     let mut dst = [[Cell::Empty; 33]; 33];
     for (i, row) in src.iter().enumerate() {
         for (j, (left, right)) in row.iter().enumerate() {
-            // to learn: I kinda guessed the [*] syntax. I need to make sure
-            // that it does that I suspect.
             let left = lex_left(*left)?;
             let right = lex_right(*right)?;
             let cell = parse_cell(left, right)?;
@@ -202,11 +194,21 @@ fn cell_grid_of_char_grid(src: Grid33<(char, char)>) -> Result<Grid33<Cell>, Box
     Ok(dst)
 }
 
-fn of_cell_grid(
-    grid: Grid33<Cell>,
-    icorrection: usize,
-    jcorrection: usize,
-) -> Result<Defn, Box<dyn Error>> {
+enum Alignment {
+    Odd,
+    Even,
+}
+
+/// Attempt to turn a grid of `Cell` to a `Defn`. This includes converting from 2d grid coordinates
+/// to cube coordinates.
+/// In the 2d grid representation, half of the element are void, they are placeholders that lie
+/// between two actual puzzle cells. These cells are expected to be `Empty`. `alignment` chooses
+/// which subset of the string definition is void.
+fn of_cell_grid(grid: Grid33<Cell>, alignment: Alignment) -> Result<Defn, Box<dyn Error>> {
+    let (icorrection, jcorrection) = match alignment {
+        Alignment::Even => (1, 0),
+        Alignment::Odd => (0, 0),
+    };
     let mut map = BTreeMap::new();
     for (i, row) in grid.iter().enumerate() {
         let i = i + icorrection;
@@ -221,7 +223,6 @@ fn of_cell_grid(
             match (whole, cell) {
                 (true | false, Cell::Empty) => (),
                 (true, _) => {
-                    // println!("    i:{}, j:{}, q:{}, r:{}, s:{}, {:?}", i, j, q, r, s, &cell);
                     let (q, r, s) = (q as isize, r as isize, s as isize);
                     let c = Coords::new(q, r, s);
                     assert!(!map.contains_key(&c));
@@ -229,8 +230,7 @@ fn of_cell_grid(
                     ()
                 }
                 (false, _) => {
-                    // println!("    i:{}, j:{}, q:{}, r:{}, s:{}, {:?}", i, j, q, r, s, &cell);
-                    return err("Bad alignment in hexcells definition");
+                    return Err("Bad alignment in hexcells definition".into());
                 }
             }
         }
@@ -238,30 +238,26 @@ fn of_cell_grid(
     Ok(map)
 }
 
-/// Takes a string as defined in https://www.redblobgames.com/grids/hexagons/
-/// and lex/parse/type to [Cell].
-pub fn of_string(defn: &String) -> Result<Defn, Box<dyn Error>> {
+/// Takes a string definition as found on reddit and lex/parse/type it to `Defn`. If the result is
+/// `Ok` then the grid is a valid Hexcells puzzle.
+pub fn of_string(strdefn: &String) -> Result<Defn, Box<dyn Error>> {
     // Step 1: Turn the string into 33x33 array of (char, char).
-    let grid = char_grid_of_string(defn)?;
+    let grid = char_grid_of_string(strdefn)?;
 
     // Step 2: Lex and parse the (char, char) to Cell.
-    // - The lexing step is a direct translation of the left/right chars to
-    // TokenLeft/TokenRight.
-    // - The parsing step is an exhaustive pattern matching of the tokens to a
-    // final Cell type.
-    // to learn: Is the grid copied when passed to [cell_grid_of_char_grid]? I
-    // don't want that.
+    // - The lexing step is a direct translation of the left/right chars to TokenLeft/TokenRight.
+    // - The parsing step is an exhaustive pattern matching of the tokens to a final Cell type.
     let grid = cell_grid_of_char_grid(grid)?;
 
-    // Step 3: Turn the 33x33 array to a map, which will be the contained used
-    // when solving.
-    for (ci, cj) in [(0, 0), (1, 0)] {
-        // println!("  delta: {} {}", ci, cj);
-        match of_cell_grid(grid, ci, cj) {
-            Err(_) => (),
-            Ok(x) => return Ok(x),
-        }
-    }
+    // Step 3: Turn the 33x33 Cell array to a Defn.
+    match of_cell_grid(grid, Alignment::Even) {
+        Err(_) => (),
+        Ok(x) => return Ok(x),
+    };
+    match of_cell_grid(grid, Alignment::Odd) {
+        Err(_) => (),
+        Ok(x) => return Ok(x),
+    };
     Err("Input grid is incompatible with cube coordinates. This happens because the level is made of at least 2 zones that are completely disjoint and that don't lie on the same hexagon tiling".into())
 }
 

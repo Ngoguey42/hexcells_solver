@@ -19,6 +19,7 @@ use env::Env;
 use misc::Coords;
 use multiverse::State;
 
+/// Solver progress. Finished when `unknowns` is empty.
 struct Progress {
     blues: BTreeSet<Coords>,
     blacks: BTreeSet<Coords>,
@@ -32,15 +33,10 @@ enum Difficulty {
 }
 
 impl Progress {
-    // to learn: defn and grid mutually reference each other
     fn of_defn(defn: &Defn) -> Progress {
         let mut blues = BTreeSet::new();
         let mut blacks = BTreeSet::new();
         let mut unknowns = BTreeSet::new();
-        // to learn: How are nested functions considered a good style in rust?
-        // to learn: Why exactly do I need [mut] below?
-        // to learn: I'm not sure why [add] has to be tagged as a "closure"
-        // instead of [of_defn].
         let mut add = |coords: Coords, revealed: bool, color: Color| {
             let _: bool = match (revealed, color) {
                 (false, _) => unknowns.insert(coords),
@@ -66,9 +62,6 @@ impl Progress {
         }
     }
 
-    // to learn: The compiler warns that [is_solved] is never used even with
-    // the [] keyword. I'm surprised. Need to learn about the compilation
-    // phase.
     fn is_solved(&self) -> bool {
         self.unknowns.is_empty()
     }
@@ -88,11 +81,18 @@ impl Progress {
     }
 }
 
+/// Solver constraints. They correspond to the numbers in the actual game.
+/// The hidden ones are yet to be revealed by the solver loop.
+/// The exhausted ones are revealed but don't carry uncertainty anymore.
+/// The visible ones is the active set of constraint for the solver. The the actual puzzle, there
+/// are the constraints that the player has to look at in order to discover new cells.
 struct Constraints {
     constraints_hidden: BTreeMap<Coords, Multiverse>,
     constraints_visible: BTreeMap<Coords, Multiverse>,
     constraints_exhausted: BTreeSet<Coords>,
 }
+
+/// This is used to give a virtual coordinate to the global constraint
 static UNIQUE_COORDS: Lazy<Coords> = Lazy::new(|| Coords::new(999, 0, -999));
 
 impl Constraints {
@@ -124,15 +124,9 @@ impl Constraints {
     }
 
     fn reveal(&mut self, visible_cells: &BTreeSet<Coords>) {
-        // to learn: I was able to do what I want in term of iterating on
-        // constraints_hidden while deleting from it. However I don't understand
-        // why cloned is necessary
         for k in self.constraints_hidden.keys().cloned().collect::<Vec<_>>() {
             if visible_cells.contains(&k) {
                 let mv = self.constraints_hidden.remove(&k).expect("Unreachable");
-                // if verbose {
-                //     println!("  Enabling constraint: {:?}:{:?}", k, defn[k],);
-                // }
                 self.constraints_visible.insert(k, mv);
             }
         }
@@ -159,9 +153,6 @@ impl Constraints {
                 State::Running => (),
                 State::Stuck => panic!("The grid is bugged and has no soltions"),
                 State::Empty => {
-                    // if verbose {
-                    //     println!("  Removing exhausted constraint: {:?}:{:?}", k, defn.get(k));
-                    // }
                     self.constraints_visible
                         .remove(&k.clone())
                         .expect("Unreachable");
@@ -183,15 +174,6 @@ impl Constraints {
                     assert_eq!(color, invariants[&coords]);
                 }
                 invariants.insert(coords, color);
-                // if verbose {
-                //     println!(
-                //         "  Found {:?}:{:?} in {:?}:{:?}",
-                //         coords,
-                //         color,
-                //         k,
-                //         defn.get(k)
-                //     );
-                // }
                 assert_eq!(Some(color), defn::color_of_cell(&defn[&coords]));
             }
         }
@@ -203,9 +185,7 @@ impl Constraints {
         env: &mut Env,
         defn: &Defn,
     ) -> Result<(BTreeMap<Coords, Color>, Difficulty), Box<dyn Error>> {
-        // println!("compound_invariants");
-        let mut invariants = BTreeMap::new();
-        let mut difficulty = 2;
+        // First construct the graph over visible constraints.
         let mut connections: BTreeMap<Coords, BTreeSet<Coords>> = self
             .constraints_visible
             .keys()
@@ -223,6 +203,9 @@ impl Constraints {
                 connections.get_mut(k1).expect("Unreachable").insert(*k0);
             }
         }
+
+        // Then build the set of compound invariants, starting with one visible constraint per
+        // group
         let mut constraints_groups: BTreeMap<BTreeSet<Coords>, Multiverse> = self
             .constraints_visible
             .iter()
@@ -230,20 +213,25 @@ impl Constraints {
             .collect();
         constraints_groups.remove(&BTreeSet::from([*UNIQUE_COORDS]));
         connections.remove(&*UNIQUE_COORDS);
+
+        // Then escape if there are no visible constraints
+        let mut invariants = BTreeMap::new();
+        let mut difficulty = 2;
         if constraints_groups.is_empty() {
             return Ok((invariants, Difficulty::Local(difficulty)));
         }
+
+        // Then loop until one or more invariants are found or that all the graph has been collapsed
         loop {
-            // assert!(constraints_groups.len() > 0);
-            // println!(
-            //     "  Looping to merge constraints. Currently {} groups of len {}",
-            //     constraints_groups.len(),
-            //     constraints_groups.first_key_value().unwrap().0.len(),
-            // );
+            // One loop consists of increasing the size of constraint groups by one.
+            // The first loop starts with `constraints_groups` being one group per node of the graph
+            // and ends with `constraints_groups` being one group per edge of the graph.
+
+            // For each group so far, for each neighbor cell in the graph, create a new group that
+            // merges the old group with that neighbor.
             for kset_old in constraints_groups.keys().cloned().collect::<Vec<_>>() {
                 env.check_timeout()?;
-                // println!("AA {:?}", &kset_old);
-                let mv_old = constraints_groups.remove(&kset_old).expect("Unreachable");
+                let mv_old = constraints_groups.remove(&kset_old).unwrap();
                 let mut neighbor_contraints = BTreeSet::new();
                 for k in &kset_old {
                     for k in &connections[k] {
@@ -260,21 +248,23 @@ impl Constraints {
                         continue;
                     }
                     let mv_new = &self.constraints_visible[k_new];
-                    constraints_groups.insert(kset_new, mv_old.intersection(mv_new));
+                    // `mv_old.merge(mv_new)` is computation intensive
+                    constraints_groups.insert(kset_new, mv_old.merge(mv_new));
                 }
             }
+
+            // Look for invariants
             for (_k, mv) in &constraints_groups {
                 for (coords, color) in mv.invariants() {
                     if invariants.contains_key(&coords) {
                         assert_eq!(color, invariants[&coords]);
                     }
                     invariants.insert(coords, color);
-                    // if verbose {
-                    //     println!("  Found {:?}:{:?} in {:?}", coords, color, k);
-                    // }
                     assert_eq!(Some(color), defn::color_of_cell(&defn[&coords]));
                 }
             }
+
+            // Stop if necessary
             if !invariants.is_empty() {
                 break;
             }
@@ -292,23 +282,19 @@ impl Constraints {
         defn: &Defn,
     ) -> Result<BTreeMap<Coords, Color>, Box<dyn Error>> {
         let mut invariants = BTreeMap::new();
-        // println!("  Merging all constraints with the global constraint");
         // Using rev() here is a quick and dirty hack to make sure that the
         // global constraint is first in the fold. This greatly improves
         // runtime.
         let mut mv = Multiverse::empty();
         for mv2 in self.constraints_visible.values().rev() {
             env.check_timeout()?;
-            mv = mv.intersection(mv2);
+            mv = mv.merge(mv2);
         }
         for (coords, color) in mv.invariants() {
             if invariants.contains_key(&coords) {
                 assert_eq!(color, invariants[&coords]);
             }
             invariants.insert(coords, color);
-            // if verbose {
-            //     println!("  Found {:?}:{:?}", coords, color);
-            // }
             assert_eq!(Some(color), defn::color_of_cell(&defn[&coords]));
         }
         Ok(invariants)
@@ -342,12 +328,6 @@ pub fn difficulty_of_findings_vec(findings_vec: &Vec<Findings>) -> (Option<u32>,
         }
     }
     (max_local, max_global)
-    // match (max_local, max_global) {
-    //     (None, None) => panic!(),
-    //     (Some(i), None) => format!("{}", i),
-    //     (Some(i), Some(j)) => format!("{}g{}", i, j),
-    //     (None, Some(j)) => format!("g{}", j),
-    // }
 }
 
 impl fmt::Display for Outcome {
@@ -397,13 +377,16 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
             );
         }
 
-        // Step 1 - Transfer constraints to visible in order to reflect the status of [progress]
+        // Step 1 - Transfer constraints from hidden to visible in order to reflect the status of
+        // `progress`.
         constraints.reveal(&visible_cells);
 
-        // Step 2 - Narrow down the visible constraints in order to reflect the status of [progress]
+        // Step 2 - Narrow down each of the visible constraints in order to reflect the status of
+        // `progress`.
         constraints.narrow(&visible_cells, &progress);
 
-        // Step 3 - Remove the exhausted constraints
+        // Step 3 - Transfer visible constraints to exhausted if they don't carry uncertainty
+        // anymore (i.e. the ones that were narrowed while `progress` knows all they scope).
         let () = constraints.gc();
 
         // Step 4 - Check if finished
@@ -415,8 +398,7 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
         }
 
         // Step 5.1 - Look for trivial invariants (i.e. previously unknown cells that can be infered
-        // by looking at a single constraint)
-        // dbg!();
+        // by looking at a single constraint).
         let mut invariants = constraints.trivial_invariants(&defn);
         difficulty = Difficulty::Local(1);
 
@@ -424,7 +406,6 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
         // for the player. (global constraint is exclduded here because it is likely to cause
         // combinatorial explosion, see step 5.3 for this)
         if invariants.is_empty() {
-            // dbg!();
             env.reset_timer();
             (invariants, difficulty) = match constraints.compound_invariants(env, &defn) {
                 Ok(x) => x,
@@ -437,7 +418,6 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
 
         // Step 5.3 - Look for invariants using the global constraints
         if invariants.is_empty() {
-            // dbg!();
             difficulty =
                 Difficulty::Global(constraints.constraints_visible.len().try_into().unwrap());
             invariants = match constraints.global_invariants(env, &defn) {

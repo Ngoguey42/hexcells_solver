@@ -9,16 +9,8 @@ use std::io::Read;
 use std::io::Write;
 use std::path::PathBuf;
 
-// to learn: For sure there is a standard way to do this. I feel like
-// reinventing the wheel
-// TODO: Do [as Error] everywhere
-pub fn err<T>(msg: &str) -> Result<T, Box<dyn Error>> {
-    Err(msg.to_string().into())
-}
-
-// to learn: I had to write [PartialEq, PartialOrd, Eq, Ord] for compatibility
-// with Btreemap, but IDK yet why I had to put all of these.
-/// Cube coordinates for hexagon tiling https://www.redblobgames.com/grids/hexagons/#conversions (use "flat" mode, not "pointy").
+/// Cube coordinates for hexagon tiling.
+/// https://www.redblobgames.com/grids/hexagons/#conversions (use "flat" mode, not "pointy").
 #[derive(Debug, Copy, Clone, PartialEq, PartialOrd, Eq, Ord, Serialize, Deserialize)]
 pub struct Coords {
     /// Grows towards right
@@ -32,9 +24,6 @@ pub struct Coords {
 impl Coords {
     pub fn new(q: isize, r: isize, s: isize) -> Coords {
         if q + r + s != 0 {
-            // to learn: Using panic here. I know I don't want to use a result
-            // but what about an assert or some other rust concept that IDK yet?
-            // I need to study the error paradigms in rust.
             panic!("Constructing an invalid Coords")
         }
         use std::convert::TryInto;
@@ -44,7 +33,6 @@ impl Coords {
         }
     }
 
-    // to learn: Is there a "property" syntax like python?
     pub fn q(&self) -> isize {
         self.q.into()
     }
@@ -116,25 +104,6 @@ impl std::ops::Sub for Coords {
     }
 }
 
-pub fn n_choose_k(n: u64, mut k: u64) -> Option<u64> {
-    if k > n {
-        panic!("Bad call to n_choose_k")
-    };
-    if k > n - k {
-        k = n - k;
-    }
-    let mut result: u64 = 1;
-    for i in 0..k {
-        let fact = n - i;
-        let quot = i + 1;
-        match result.checked_mul(fact) {
-            None => return None,
-            Some(res) => result = res / quot,
-        }
-    }
-    Some(result)
-}
-
 pub fn sha256<T: Serialize>(data: &T) -> String {
     let serialized_data = serde_json::to_string(data).expect("Failed to serialize the struct");
     let digest =
@@ -157,14 +126,15 @@ pub fn get_url_with_cache(url: &String, cache_dir: &str) -> Result<String, Box<d
     with_cache(url, || get_url(url), cache_dir)
 }
 
-/// Either compute and cache on Ok or get result from cache
+/// Either call `compute` and cache on `Ok` or fetch from cache
+/// Not thread safe
 pub fn with_cache<F, T, U>(key: &T, compute: F, cache_dir: &str) -> Result<U, Box<dyn Error>>
 where
     F: FnOnce() -> Result<U, Box<dyn Error>>,
     T: Serialize,
     U: Serialize + DeserializeOwned,
 {
-    // Decide cache filename using a crypto hash over computations' key, in order to prevent hash
+    // Decide cache filename using a crypto hash on computations' key in order to prevent hash
     // collisions
     let key = sha256(key);
     fs::create_dir_all(cache_dir)?;
@@ -183,9 +153,9 @@ where
     };
     let res = compute()?;
     let json = serde_json::to_string(&res)?;
-    let mut tmppath = PathBuf::from(cache_dir);
     // Write file to a tmp-named file (not thread safe), and then perform an atomic rename. It's
     // necessary in order to avoid cache corruption in case of ctrl-c during cache writing.
+    let mut tmppath = PathBuf::from(cache_dir);
     tmppath.push("tmp");
     {
         let mut file = File::create(&tmppath)?;
@@ -193,6 +163,25 @@ where
     }
     fs::rename(tmppath, path)?;
     Ok(res)
+}
+
+pub fn n_choose_k(n: u64, mut k: u64) -> Option<u64> {
+    if k > n {
+        panic!("Bad call to n_choose_k")
+    };
+    if k > n - k {
+        k = n - k;
+    }
+    let mut result: u64 = 1;
+    for i in 0..k {
+        let fact = n - i;
+        let quot = i + 1;
+        match result.checked_mul(fact) {
+            None => return None,
+            Some(res) => result = res / quot,
+        }
+    }
+    Some(result)
 }
 
 #[cfg(test)]
