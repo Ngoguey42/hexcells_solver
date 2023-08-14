@@ -21,7 +21,7 @@ const HEADER1: &str = "Difficulty,Upvotes,Date,Author,Post,Title,URL\n";
 
 fn cleanup_post_name(s: &str) -> String {
     let s = s
-        .replace("\"", "'")
+        .replace('\"', "'")
         .replace("[level]", "")
         .replace("[Level]", "")
         .replace("[Level Pack]", "")
@@ -45,7 +45,7 @@ pub fn report_all(lines: &Vec<Line>) {
             Outcome::Solver(solver::Outcome::Timeout) => "T".to_string(),
             Outcome::Solver(solver::Outcome::Unsolvable) => "Spe".to_string(),
             Outcome::Solver(solver::Outcome::Solved(findings_vec)) => {
-                let (max_local, max_global) = solver::difficulty_of_findings_vec(&findings_vec);
+                let (max_local, max_global) = solver::difficulty_of_findings_vec(findings_vec);
                 match (max_local, max_global) {
                     (None, None) => panic!(),
                     (Some(i), None) => format!("{}", i),
@@ -54,9 +54,9 @@ pub fn report_all(lines: &Vec<Line>) {
                 }
             }
         };
-        let level_name = format!("\"{}\"", line.level_name.replace("\"", "'"));
+        let level_name = format!("\"{}\"", line.level_name.replace('\"', "'"));
         let post_name = format!("\"{}\"", cleanup_post_name(&post.title));
-        let author = format!("\"{}\"", post.author.replace("\"", "'"));
+        let author = format!("\"{}\"", post.author.replace('\"', "'"));
         let report_line = format!(
             "{},{},{},{},{},{},{}",
             classif, post.score, post.date, author, post_name, level_name, post.url
@@ -71,7 +71,7 @@ pub fn report_all(lines: &Vec<Line>) {
     }
 }
 
-pub fn report_ranked(lines: &Vec<Line>) {
+pub fn report_ranked(lines: &[Line]) {
     let mut report_lines = vec![];
     for (i, line) in lines.iter().enumerate() {
         let post = &line.post;
@@ -80,7 +80,7 @@ pub fn report_ranked(lines: &Vec<Line>) {
             Outcome::Solver(solver::Outcome::Timeout) => continue,
             Outcome::Solver(solver::Outcome::Unsolvable) => continue,
             Outcome::Solver(solver::Outcome::Solved(findings_vec)) => {
-                solver::difficulty_of_findings_vec(&findings_vec)
+                solver::difficulty_of_findings_vec(findings_vec)
             }
         };
         // let max_local = max_local as i32;
@@ -91,9 +91,9 @@ pub fn report_ranked(lines: &Vec<Line>) {
             (Some(i), Some(j)) => format!("{}g{}", i, j),
             (None, Some(j)) => format!("g{}", j),
         };
-        let level_name = format!("\"{}\"", line.level_name.replace("\"", "'"));
+        let level_name = format!("\"{}\"", line.level_name.replace('\"', "'"));
         let post_name = format!("\"{}\"", cleanup_post_name(&post.title));
-        let author = format!("\"{}\"", post.author.replace("\"", "'"));
+        let author = format!("\"{}\"", post.author.replace('\"', "'"));
         let report_line = format!(
             "{},{},{},{},{},{},{}",
             classif, post.score, post.date, author, post_name, level_name, post.url

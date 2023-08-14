@@ -49,7 +49,7 @@ fn distribute_together(scope_vec: &Vec<Coords>, blue_count: usize) -> Multiverse
         let mut blacks = scope_set.clone();
         for i in i0..(i0 + blue_count) {
             let coords = scope_vec[i];
-            assert_eq!(blacks.remove(&coords), true);
+            assert!(blacks.remove(&coords));
             blues.insert(coords);
         }
         assert_eq!(blues.len(), blue_count);
@@ -143,7 +143,7 @@ fn has_compatible_contiguity(
             };
         }
     };
-    return true;
+    true
 }
 
 /// This multiverse constructor is for Zone6 together and Zone6 separated
@@ -158,7 +158,7 @@ fn distribute_in_ring(
             .iter()
             .filter_map(|(coords, is_gap)| if *is_gap { None } else { Some(*coords) })
             .collect();
-        if blue_count <= 1 || blue_count as usize == scope_vec.len() {
+        if blue_count <= 1 || blue_count == scope_vec.len() {
             return distribute_anywhere(&scope_vec, blue_count);
         }
     } else {
@@ -170,7 +170,7 @@ fn distribute_in_ring(
         .collect();
     let mut layouts = vec![];
     let idxs: BTreeSet<_> = (0..6).collect();
-    for blues in idxs.iter().combinations(blue_count as usize) {
+    for blues in idxs.iter().combinations(blue_count) {
         let blues: BTreeSet<_> = blues.iter().cloned().cloned().collect();
         let mut a_gap_is_blue = false;
         for i in &blues {
@@ -201,8 +201,7 @@ fn distribute_in_ring(
         layouts.push(Layout::new(bc.into_iter().collect()));
     }
     assert!(layouts.len() > 0);
-    let mv = Multiverse::new(scope_set, layouts);
-    mv
+    Multiverse::new(scope_set, layouts)
 }
 
 #[cfg(test)]
@@ -487,17 +486,14 @@ mod tests {
 pub fn zone6(defn: &defn::Defn, coords: Coords, modifier: Modifier) -> Multiverse {
     let mut blue_count = 0;
     let neighborhood = coords.neighbors6();
-    let scope_arr =
-        neighborhood.map(
-            |c| match defn.get(&c).and_then(|cell| defn::color_of_cell(cell)) {
-                None => (c, true),
-                Some(Color::Blue) => {
-                    blue_count += 1;
-                    (c, false)
-                }
-                Some(Color::Black) => (c, false),
-            },
-        );
+    let scope_arr = neighborhood.map(|c| match defn.get(&c).and_then(defn::color_of_cell) {
+        None => (c, true),
+        Some(Color::Blue) => {
+            blue_count += 1;
+            (c, false)
+        }
+        Some(Color::Black) => (c, false),
+    });
     match modifier {
         Modifier::Anywhere => {
             let scope = scope_arr
@@ -515,7 +511,7 @@ pub fn zone18(defn: &defn::Defn, coords: Coords) -> Multiverse {
     let mut scope = Vec::new();
     let mut blue_count = 0;
     for c in coords.neighbors18() {
-        match defn.get(&c).and_then(|cell| defn::color_of_cell(cell)) {
+        match defn.get(&c).and_then(defn::color_of_cell) {
             None => (),
             Some(Color::Blue) => {
                 blue_count += 1;
@@ -546,7 +542,7 @@ pub fn line(
     for i in 0..33 {
         // 33 is more than the max diagonal len of a grid
         let c = Coords::new(q + dq * i, r + dr * i, s + ds * i);
-        match defn.get(&c).and_then(|cell| defn::color_of_cell(cell)) {
+        match defn.get(&c).and_then(defn::color_of_cell) {
             None => (),
             Some(Color::Blue) => {
                 blue_count += 1;

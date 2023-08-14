@@ -43,7 +43,6 @@ impl Progress {
                 (true, Color::Black) => blacks.insert(coords),
                 (true, Color::Blue) => blues.insert(coords),
             };
-            ()
         };
         for (coords, cell) in defn.iter() {
             type C = defn::Cell;
@@ -105,17 +104,17 @@ impl Constraints {
                 Cell::Empty => (),
                 Cell::Zone0 { .. } => (),
                 Cell::Line { m, o } => {
-                    constraints_visible.insert(*coords, constraint::line(&defn, *coords, *o, *m));
+                    constraints_visible.insert(*coords, constraint::line(defn, *coords, *o, *m));
                 }
                 Cell::Zone6 { m, .. } => {
-                    constraints_hidden.insert(*coords, constraint::zone6(&defn, *coords, *m));
+                    constraints_hidden.insert(*coords, constraint::zone6(defn, *coords, *m));
                 }
                 Cell::Zone18 { .. } => {
-                    constraints_hidden.insert(*coords, constraint::zone18(&defn, *coords));
+                    constraints_hidden.insert(*coords, constraint::zone18(defn, *coords));
                 }
             }
         }
-        constraints_visible.insert(*UNIQUE_COORDS, constraint::global_blue_count(&defn));
+        constraints_visible.insert(*UNIQUE_COORDS, constraint::global_blue_count(defn));
         Constraints {
             constraints_hidden,
             constraints_visible,
@@ -134,7 +133,7 @@ impl Constraints {
 
     fn narrow(&mut self, visible_cells: &BTreeSet<Coords>, progress: &Progress) {
         for (_k, mv) in self.constraints_visible.iter_mut() {
-            let inter: BTreeSet<_> = mv.scope.intersection(&visible_cells).cloned().collect();
+            let inter: BTreeSet<_> = mv.scope.intersection(visible_cells).cloned().collect();
             if inter.is_empty() {
                 continue;
             }
@@ -156,7 +155,7 @@ impl Constraints {
                     self.constraints_visible
                         .remove(&k.clone())
                         .expect("Unreachable");
-                    self.constraints_exhausted.insert(k.clone());
+                    self.constraints_exhausted.insert(k);
                 }
             }
         }
@@ -168,7 +167,7 @@ impl Constraints {
 
     fn trivial_invariants(&self, defn: &Defn) -> BTreeMap<Coords, Color> {
         let mut invariants = BTreeMap::new();
-        for (_k, mv) in &self.constraints_visible {
+        for mv in self.constraints_visible.values() {
             for (coords, color) in mv.invariants() {
                 if invariants.contains_key(&coords) {
                     assert_eq!(color, invariants[&coords]);
@@ -254,7 +253,7 @@ impl Constraints {
             }
 
             // Look for invariants
-            for (_k, mv) in &constraints_groups {
+            for mv in constraints_groups.values() {
                 for (coords, color) in mv.invariants() {
                     if invariants.contains_key(&coords) {
                         assert_eq!(color, invariants[&coords]);
@@ -271,7 +270,7 @@ impl Constraints {
             if constraints_groups.is_empty() {
                 break;
             }
-            difficulty = difficulty + 1;
+            difficulty += 1;
         }
         Ok((invariants, Difficulty::Local(difficulty)))
     }
@@ -363,8 +362,8 @@ impl fmt::Display for Outcome {
 }
 
 pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
-    let mut progress = Progress::of_defn(&defn);
-    let mut constraints = Constraints::of_defn(&defn);
+    let mut progress = Progress::of_defn(defn);
+    let mut constraints = Constraints::of_defn(defn);
     let mut history = vec![];
     let mut difficulty;
     loop {
@@ -387,7 +386,7 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
 
         // Step 3 - Transfer visible constraints to exhausted if they don't carry uncertainty
         // anymore (i.e. the ones that were narrowed while `progress` knows all they scope).
-        let () = constraints.gc();
+        constraints.gc();
 
         // Step 4 - Check if finished
         if progress.is_solved() {
@@ -399,7 +398,7 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
 
         // Step 5.1 - Look for trivial invariants (i.e. previously unknown cells that can be infered
         // by looking at a single constraint).
-        let mut invariants = constraints.trivial_invariants(&defn);
+        let mut invariants = constraints.trivial_invariants(defn);
         difficulty = Difficulty::Local(1);
 
         // Step 5.2 - Look for compound invariants, gradually increasing the level of cognitive load
@@ -407,7 +406,7 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
         // combinatorial explosion, see step 5.3 for this)
         if invariants.is_empty() {
             env.reset_timer();
-            (invariants, difficulty) = match constraints.compound_invariants(env, &defn) {
+            (invariants, difficulty) = match constraints.compound_invariants(env, defn) {
                 Ok(x) => x,
                 Err(err) => match err.downcast::<env::Timeout>() {
                     Ok(_) => return Outcome::Timeout,
@@ -420,7 +419,7 @@ pub fn solve(env: &mut Env, defn: &Defn, verbose: bool) -> Outcome {
         if invariants.is_empty() {
             difficulty =
                 Difficulty::Global(constraints.constraints_visible.len().try_into().unwrap());
-            invariants = match constraints.global_invariants(env, &defn) {
+            invariants = match constraints.global_invariants(env, defn) {
                 Ok(x) => x,
                 Err(err) => match err.downcast::<env::Timeout>() {
                     Ok(_) => return Outcome::Timeout,

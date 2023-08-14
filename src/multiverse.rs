@@ -51,12 +51,12 @@ impl Layout {
     /// Test if two Layouts share the same keys on their intersection
     fn aligned_with(&self, other: &Layout) -> bool {
         let mut left_key_per_coords = BTreeMap::new();
-        for (kleft, _) in &self.binomial_coefs {
+        for kleft in self.binomial_coefs.keys() {
             for c in kleft {
                 let _ = left_key_per_coords.insert(c, kleft);
             }
         }
-        for (kright, _) in &other.binomial_coefs {
+        for kright in other.binomial_coefs.keys() {
             for c in kright {
                 match left_key_per_coords.get(c) {
                     None => (),
@@ -71,9 +71,9 @@ impl Layout {
         true
     }
 
-    fn are_aligned(left: &Vec<Layout>, right: &Vec<Layout>) -> bool {
+    fn are_aligned(left: &[Layout], right: &[Layout]) -> bool {
         // First: Check that all left Layouts have the same
-        let left_layout_opt = match &left[..] {
+        let left_layout_opt = match left {
             [] => None,
             [hd, tl @ ..] => {
                 let keys: BTreeSet<_> = hd.binomial_coefs.keys().cloned().collect();
@@ -86,7 +86,7 @@ impl Layout {
             }
         };
         // Then: Check that all right Layouts have the same keys
-        let right_layout_opt = match &right[..] {
+        let right_layout_opt = match right {
             [] => None,
             [hd, tl @ ..] => {
                 let keys: BTreeSet<_> = hd.binomial_coefs.keys().cloned().collect();
@@ -112,14 +112,14 @@ impl Layout {
             let old_key = lay
                 .binomial_coefs
                 .keys()
-                .find(|coords_set| coords_set.is_superset(&new_key))
+                .find(|coords_set| coords_set.is_superset(new_key))
                 .expect("Unexpected parameters to split");
             if new_key == old_key {
                 // This means that a previous call to `split` already chunked as wished
                 res.push(lay.clone());
                 continue;
             }
-            let new_key2: BTreeSet<_> = old_key.difference(&new_key).cloned().collect();
+            let new_key2: BTreeSet<_> = old_key.difference(new_key).cloned().collect();
             assert!(!new_key2.is_empty());
             let mut bc = lay.binomial_coefs.clone();
             let blue_count = bc.remove(old_key).expect("Unreachable");
@@ -145,7 +145,7 @@ impl Layout {
         let mut res = vec![(*self).clone()];
         for left_key in self.binomial_coefs.keys() {
             for right_key in right_keys {
-                if left_key.is_disjoint(&right_key) {
+                if left_key.is_disjoint(right_key) {
                     continue;
                 }
                 let inter = left_key.intersection(right_key).cloned().collect();
@@ -249,7 +249,7 @@ impl Multiverse {
     pub fn new(scope: BTreeSet<Coords>, layouts: Vec<Layout>) -> Multiverse {
         for lay in &layouts {
             let lay_coords = lay.binomial_coefs.keys().fold(BTreeSet::new(), |acc, set| {
-                acc.union(&set).cloned().collect()
+                acc.union(set).cloned().collect()
             });
             assert_eq!(lay_coords, scope);
         }

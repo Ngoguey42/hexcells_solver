@@ -50,7 +50,7 @@ fn main_reddit_posts() -> Result<(), Box<dyn Error>> {
                 .replace("&#39;", "'")
                 .trim()
                 .to_string();
-            let defn = match defn::of_string(&strdefn) {
+            let defn = match defn::of_string(strdefn) {
                 Err(err) => {
                     reporting.push(reporting::Line {
                         post: post.clone(),

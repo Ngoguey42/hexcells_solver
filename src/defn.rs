@@ -11,9 +11,9 @@ type Grid33<T> = [[T; 33]; 33];
 /// It is passed to the solver for solving.
 pub type Defn = BTreeMap<Coords, Cell>;
 
-fn char_grid_of_string(strdefn: &String) -> Result<Grid33<(char, char)>, Box<dyn Error>> {
+fn char_grid_of_string(strdefn: &str) -> Result<Grid33<(char, char)>, Box<dyn Error>> {
     let mut grid = [[('_', '_'); 33]; 33];
-    let strdefn: Vec<_> = strdefn.trim().split("\n").collect();
+    let strdefn: Vec<_> = strdefn.trim().split('\n').collect();
     if strdefn.len() != 38 {
         return Err(format!(
             "Wrong number of line in strdefn. Got {}, expected 38",
@@ -227,7 +227,6 @@ fn of_cell_grid(grid: Grid33<Cell>, alignment: Alignment) -> Result<Defn, Box<dy
                     let c = Coords::new(q, r, s);
                     assert!(!map.contains_key(&c));
                     map.insert(c, *cell);
-                    ()
                 }
                 (false, _) => {
                     return Err("Bad alignment in hexcells definition".into());
@@ -240,7 +239,7 @@ fn of_cell_grid(grid: Grid33<Cell>, alignment: Alignment) -> Result<Defn, Box<dy
 
 /// Takes a string definition as found on reddit and lex/parse/type it to `Defn`. If the result is
 /// `Ok` then the grid is a valid Hexcells puzzle.
-pub fn of_string(strdefn: &String) -> Result<Defn, Box<dyn Error>> {
+pub fn of_string(strdefn: &str) -> Result<Defn, Box<dyn Error>> {
     // Step 1: Turn the string into 33x33 array of (char, char).
     let grid = char_grid_of_string(strdefn)?;
 

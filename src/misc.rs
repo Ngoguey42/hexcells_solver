@@ -140,7 +140,7 @@ where
     fs::create_dir_all(cache_dir)?;
     let mut path = PathBuf::from(cache_dir);
     path.push(key);
-    let () = match File::open(&path) {
+    match File::open(&path) {
         Ok(mut file) => {
             let mut contents = String::new();
             file.read_to_string(&mut contents)?;
